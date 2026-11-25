@@ -253,7 +253,7 @@ streamlit run dashboard/app.py       # live dashboard</pre>
 (function () {
   const m = location.hostname.match(/^([^.]+)\.github\.io$/);
   const repo = location.pathname.split('/').filter(Boolean)[0];
-  const base = m && repo ? `https://github.com/${m[1]}/${repo}` : 'https://github.com/YuvrajDevs/turbofan-telemetry';
+  const base = m && repo ? `https://github.com/${m[1]}/${repo}` : 'https://github.com/YuvrajDevs/tf-telemetry';
   document.getElementById('repo-link').href = base;
   document.getElementById('log-link').href = base + '/blob/main/docs/build-log.md';
 })();

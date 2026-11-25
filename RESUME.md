@@ -3,7 +3,7 @@
 ## Resume entry (pick 3-4 bullets)
 
 **Turbofan Telemetry: real-time predictive-maintenance pipeline** · Kafka, Spark Structured Streaming, Delta Lake, Python
-· [project page](https://yuvrajdevs.github.io/turbofan-telemetry/) · [code](https://github.com/YuvrajDevs/turbofan-telemetry)
+· [project page](https://yuvrajdevs.github.io/tf-telemetry/) · [code](https://github.com/YuvrajDevs/tf-telemetry)
 
 - Built a streaming pipeline that replays NASA's C-MAPSS jet-engine fleet (200 engines, 21 sensors) through **Kafka**
   into **Delta Lake bronze/silver/gold** tables with **Spark Structured Streaming**, raising maintenance alerts a median

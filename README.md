@@ -10,7 +10,7 @@ NASA C-MAPSS ─► Producer ─► Kafka (6 partitions) ─► Bronze (raw) ─
   200 engines     chaos:       key = engine_id        Delta           + Dead-letter table            foreachBatch + MERGE    ─► Dashboard
                   dup/late/bad                                                                                             ─► verify (exactly-once)
 ```
-**Project page with an interactive explorer of all 200 engines:** https://yuvrajdevs.github.io/turbofan-telemetry/ (built from [`site/`](site/))
+**Project page with an interactive explorer of all 200 engines:** https://yuvrajdevs.github.io/tf-telemetry/ (built from [`site/`](site/))
 
 Full diagram and guarantees: [docs/architecture.md](docs/architecture.md) · How it was built, every decision and every bug: [docs/build-log.md](docs/build-log.md)
 
