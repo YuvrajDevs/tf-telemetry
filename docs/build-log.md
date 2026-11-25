@@ -1,26 +1,20 @@
 # Build log: how this project was created, step by step
 
-This is the complete story of how the Turbofan Telemetry Streaming Platform was built: every decision
-(including the ones made by me, the project owner), the alternatives we considered, why we chose what we
-did, and **every failure we hit along the way**, with the exact error message, how it was diagnosed, and
-how it was fixed. Failures are numbered `F1`, `F2`, … so you can refer to them in interviews.
-
-> Reading tip: the "Why" and "Lesson" lines are what interviewers care about. If you can explain those
-> in your own words, you understand the project.
+How the Turbofan Telemetry Streaming Platform was built: every decision, the alternatives considered, why
+each one was chosen, and **every failure along the way**, with the exact error message, how it was diagnosed,
+and how it was fixed. Failures are numbered `F1`, `F2`, … for reference.
 
 ---
 
 ## Phase 0. Choosing what to build
 
-**Goal.** Two portfolio projects that get me selected for a Data Engineer 1 role and show Data Engineer 2
-depth: not just "a pipeline that runs once", but production concerns such as idempotency, failure recovery,
-data quality, monitoring and scale.
+**Goal.** A streaming pipeline that goes beyond "a pipeline that runs once": production concerns such as
+idempotency, failure recovery, data quality, monitoring and scale.
 
 | Decision | Options considered | Chosen | Why |
 |---|---|---|---|
-| How many projects | 1 big / 2 / 3 | **2** (my choice) | Depth beats breadth. Two projects I can defend for 30 minutes each. |
-| Data domain | Data that mirrors my current employer's internal processes / public data | **Public data only** (my choice) | Anything resembling an employer's internal data in a public GitHub repo is a confidentiality risk. Public datasets are safe and verifiable. |
-| Which project first | Batch data product / streaming platform | **Streaming: Turbofan telemetry** (my choice) | It covers the posting's "event-based sources", Kafka, Spark, IoT and "scale" questions, and real engine data is a strong story. |
+| Data domain | Synthetic data / public data | **Public data only** | Public datasets are safe to publish and anyone can verify the results. |
+| Project type | Batch data product / streaming platform | **Streaming: Turbofan telemetry** | Event-based sources, Kafka, Spark, IoT and scale in one project, on real engine data. |
 | Accounts / cost | Cloud (Azure/AWS/Databricks) / local | **Everything local, free, no logins** | No accounts needed except GitHub. Docker runs Kafka; Spark runs on the laptop. Easy for any reviewer to reproduce. |
 
 ---
@@ -31,7 +25,7 @@ data quality, monitoring and scale.
 
 | Option | Verdict |
 |---|---|
-| Random synthetic numbers | Rejected as the main source: no real story, easy to dismiss in an interview. Kept as an **offline fallback**. |
+| Random synthetic numbers | Rejected as the main source: no real signal to find. Kept as an **offline fallback**. |
 | NASA C-MAPSS on Kaggle | Rejected: Kaggle needs a login. |
 | NASA open data portal link (`data.nasa.gov/.../CMAPSSData.zip`) | **Failed** (see F3). |
 | NASA Prognostics Center (PHM) dataset mirror on S3 | **Chosen.** Official, public, no login, 12 MB. |
@@ -60,10 +54,10 @@ settings, 21 sensors`. Four subsets:
 
 | Layer | Options | Chosen | Why |
 |---|---|---|---|
-| Event transport | Kafka / Azure Event Hubs / AWS Kinesis / RabbitMQ | **Apache Kafka 3.9** | Industry standard, named in the job posting, runs locally free. Event Hubs exposes a Kafka-compatible API, so the skills transfer. |
+| Event transport | Kafka / Azure Event Hubs / AWS Kinesis / RabbitMQ | **Apache Kafka 3.9** | Industry standard, runs locally free. Event Hubs exposes a Kafka-compatible API, so the skills transfer. |
 | Kafka mode | ZooKeeper / **KRaft** | **KRaft** (single node) | ZooKeeper is removed in Kafka 4. KRaft = one container, simpler. |
 | Kafka image | Bitnami / Confluent / official `apache/kafka` | **`apache/kafka:3.9.0`** | Official Apache image, pinned version. |
-| Stream processing | Spark Structured Streaming / Flink / Kafka Streams | **Spark Structured Streaming** | Same engine as batch PySpark (named in the posting), micro-batch model is easy to reason about, Delta integration, very common on Databricks. Flink has lower latency but is a different skill set. |
+| Stream processing | Spark Structured Streaming / Flink / Kafka Streams | **Spark Structured Streaming** | Same engine as batch PySpark, micro-batch model is easy to reason about, Delta integration, very common on Databricks. Flink has lower latency but is a different skill set. |
 | Spark version | 3.5 / **4.0** | **PySpark 4.0.1** | My environment has Python 3.13 and PySpark 3.5 doesn't officially support it (F4). Spark 4 also supports Java 17/21. |
 | Storage format | Parquet files / **Delta Lake** / Iceberg | **Delta Lake 4.0** | ACID commits (no half-written files), MERGE for upserts, time travel, and Spark checkpoints + Delta give exactly-once. Iceberg would also work. Delta is the Databricks default. |
 | Python Kafka client | kafka-python / **confluent-kafka** | **confluent-kafka 2.8** | Built on librdkafka (C): much faster, supports the idempotent producer. |
