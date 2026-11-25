@@ -1,0 +1,48 @@
+{
+  "machine": {
+    "cpus": 4,
+    "ram_gb": 16,
+    "python": "3.13.18",
+    "os": "Linux"
+  },
+  "settings": {
+    "partitions": 6,
+    "trigger": "5 seconds",
+    "max_offsets_per_trigger": 200000,
+    "shuffle_partitions": "default",
+    "layers": [
+      "bronze",
+      "silver"
+    ]
+  },
+  "backlog": {
+    "events": 181404,
+    "producer_events_per_s": 30685,
+    "first_rows_after_s": 41,
+    "drain_s": 41,
+    "wall_clock_events_per_s": 4424
+  },
+  "steady": [
+    {
+      "target_rate": 3000,
+      "sent": 180000,
+      "actual_rate": 2990,
+      "drain_after_send_s": 13.3,
+      "rows": 180000,
+      "p50_ms": 8233,
+      "p95_ms": 10829,
+      "p99_ms": 11641
+    }
+  ],
+  "peak_processed_rows_per_s": {
+    "dead_letter": 15569.8,
+    "bronze": 7845.9,
+    "silver": 2695.6
+  },
+  "median_batch_ms": {
+    "dead_letter": 3495,
+    "bronze": 4069,
+    "silver": 6004
+  },
+  "note": "Same test with only bronze + silver running (no gold). Bronze commits every ~5.0 s, silver ~4.4 s (median): on schedule."
+}

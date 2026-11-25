@@ -18,6 +18,14 @@ HEALTH_SENSORS = {
     "s21": (-1, 23.3592, 0.0787),
 }
 
+# C-MAPSS FD003 has a SECOND fault mode (fan degradation). Its signature differs from the HPC fault above:
+# s7, s12, s20, s21 rise instead of falling and s15 falls instead of rising (build-log F14, Milestone T1).
+FAN_SIGNS = {"s2": +1, "s3": +1, "s4": +1, "s7": +1, "s11": +1, "s12": +1,
+             "s15": -1, "s17": +1, "s20": +1, "s21": +1}
+# The fan pattern moves s7/s12 by 20+ standard deviations, so it is down-weighted to give the same lead times and
+# false-alarm rate as the HPC pattern. Tuned on odd FD003 engines, checked on even ones (scripts/calibrate.py).
+FAN_WEIGHT = 0.4
+
 # Physically plausible ranges. Anything outside is a sensor/transport fault -> dead-letter.
 SENSOR_RANGES = {s: (0.0, 20000.0) for s in SENSORS}
 SENSOR_RANGES.update({"s11": (40.0, 60.0), "s4": (1200.0, 1600.0), "s2": (600.0, 700.0)})
@@ -75,12 +83,38 @@ def validate(event: dict | None) -> str | None:
     return None
 
 
-def health_index(sensors: dict) -> float:
-    """Average signed z-score of the degrading sensors. ~0 when healthy, rises with wear."""
+def _index(sensors: dict, signs: dict) -> float:
     total = 0.0
-    for s, (sign, mu, sd) in HEALTH_SENSORS.items():
-        total += sign * (sensors[s] - mu) / sd
+    for s, (_, mu, sd) in HEALTH_SENSORS.items():
+        total += signs[s] * (sensors[s] - mu) / sd
     return total / len(HEALTH_SENSORS)
+
+
+HPC_SIGNS = {s: sign for s, (sign, _, _) in HEALTH_SENSORS.items()}
+
+
+def hpc_index(sensors: dict) -> float:
+    """Signed z-score average for the HPC (compressor) fault pattern."""
+    return _index(sensors, HPC_SIGNS)
+
+
+def fan_index(sensors: dict) -> float:
+    """Signed z-score average for the fan fault pattern."""
+    return _index(sensors, FAN_SIGNS)
+
+
+def health_index(sensors: dict) -> float:
+    """Fault-mode aware health index (v2): the worse of the HPC and fan patterns.
+
+    ~0 when healthy, rises with wear of either kind. v1 used only the HPC pattern, so fan-fault
+    engines cancelled themselves out and 44% of FD003 never alerted (build-log F14).
+    """
+    return max(hpc_index(sensors), FAN_WEIGHT * fan_index(sensors))
+
+
+def fault_mode(sensors: dict) -> str:
+    """Which pattern dominates: useful for routing the alert to the right maintenance team."""
+    return "FAN" if FAN_WEIGHT * fan_index(sensors) > hpc_index(sensors) else "HPC"
 
 
 def level_for(ewma: float) -> int:
@@ -106,8 +140,9 @@ def advance_state(prev: dict | None, events: list[dict]) -> tuple[dict | None, l
         lvl = max(prev_level, level_for(ewma))  # levels only escalate until maintenance resets the engine
         state = {"engine_id": e["engine_id"], "fleet": e["fleet"], "last_cycle": e["cycle"],
                  "last_event_time": e["event_time"], "health_index": hi, "ewma_health": ewma,
-                 "alert_level": lvl, "s11": e["s11"], "s4": e["s4"]}
+                 "alert_level": lvl, "s11": e["s11"], "s4": e["s4"], "fault_mode": e.get("fault_mode")}
         if lvl > prev_level:
             alerts.append({"alert_id": f"{e['engine_id']}:{LEVELS[lvl]}", "engine_id": e["engine_id"], "fleet": e["fleet"],
-                           "level": LEVELS[lvl], "cycle": e["cycle"], "ewma_health": ewma, "event_time": e["event_time"]})
+                           "level": LEVELS[lvl], "cycle": e["cycle"], "ewma_health": ewma, "event_time": e["event_time"],
+                           "fault_mode": e.get("fault_mode")})
     return state, alerts

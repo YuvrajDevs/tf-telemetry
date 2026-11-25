@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turbofan Telemetry</title>
+<meta name="description" content="Real-time jet-engine telemetry pipeline: Kafka, Spark Structured Streaming and Delta Lake on NASA's public C-MAPSS data, with predictive maintenance alerts and proven exactly-once delivery.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f8fc; --card:#fff; --ink:#0f1b33; --muted:#5a6785; --line:#dde5f2;
+  --blue:#1d4ed8; --blue-2:#3b6ef5; --blue-soft:#e8efff; --navy:#0b1a3a;
+  --yellow:#f6c343; --yellow-soft:#fff6d6; --warn:#d48806; --crit:#d92d20; --ok:#12805c; --fan:#7c3aed;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--blue)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+header.hero{background:radial-gradient(1200px 400px at 85% -10%,#2f5bea 0,transparent 60%),var(--navy);color:#fff;padding:72px 0 56px}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--yellow)}
+h1{font-size:clamp(34px,6vw,56px);line-height:1.05;margin:14px 0 16px;letter-spacing:-.02em}
+.lede{font-size:clamp(17px,2.2vw,20px);color:#c9d6f5;max-width:760px;margin:0}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:10px;font-weight:600;text-decoration:none;font-size:15px}
+.btn.primary{background:var(--yellow);color:var(--navy)}
+.btn.ghost{border:1px solid #3a4f86;color:#fff}
+.btn:hover{filter:brightness(1.05)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:40px}
+.stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px}
+.stat b{display:block;font-size:28px;line-height:1.1;color:#fff;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:#b5c3e6}
+section{padding:56px 0 8px}
+h2{font-size:clamp(24px,3.4vw,32px);letter-spacing:-.01em;margin:0 0 8px}
+.sub{color:var(--muted);margin:0 0 24px;max-width:760px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(15,27,51,.04)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+/* architecture */
+.arch{overflow-x:auto}
+.arch svg{min-width:860px;width:100%;height:auto;display:block}
+.legend-row{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;font-size:14px;color:var(--muted)}
+/* explorer */
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+select{max-width:100%;min-width:0}
+select,.seg button{font:inherit;font-size:14px;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 10px;color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:#fff;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--blue);color:#fff}
+.chart svg{width:100%;height:auto;display:block}
+.readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.ro{background:var(--bg);border-radius:10px;padding:10px 12px}
+.ro small{display:block;color:var(--muted);font-size:12px}
+.ro b{font-size:18px;font-variant-numeric:tabular-nums}
+.pill{display:inline-block;font:600 11px/1 var(--mono);padding:5px 8px;border-radius:999px;letter-spacing:.04em}
+.pill.hpc{background:var(--blue-soft);color:var(--blue)} .pill.fan{background:#f1e9ff;color:var(--fan)}
+.pill.miss{background:#fde8e7;color:var(--crit)}
+.strip{display:flex;flex-wrap:wrap;gap:3px;margin-top:16px}
+.strip i{width:12px;height:12px;border-radius:3px;cursor:pointer;display:block}
+.strip i[aria-current=true]{outline:2px solid var(--ink);outline-offset:1px}
+/* tables */
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+tr.hl td{background:var(--yellow-soft);font-weight:600}
+td.num{font-variant-numeric:tabular-nums}
+.callout{border-left:4px solid var(--yellow);background:var(--yellow-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:15px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px}
+pre{background:var(--navy);color:#e3ebff;border-radius:12px;padding:16px;overflow-x:auto;font:13px/1.6 var(--mono)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.steps li{counter-increment:s;position:relative;padding-left:40px}
+.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-weight:700;display:grid;place-items:center;font-size:14px}
+footer{padding:48px 0 60px;color:var(--muted);font-size:14px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.dot-anim{animation:flow 3.2s linear infinite}
+@keyframes flow{from{offset-distance:0%}to{offset-distance:100%}}
+@media (prefers-reduced-motion:reduce){.dot-anim{animation:none;display:none}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Data engineering project · streaming · predictive maintenance</div>
+    <h1>Turbofan Telemetry</h1>
+    <p class="lede">A real-time pipeline for jet-engine sensor data. NASA's public C-MAPSS dataset (200 engines, each run until it failed) is replayed as a live fleet into <b>Kafka</b>, processed by <b>Spark Structured Streaming</b> into <b>Delta Lake</b> bronze / silver / gold tables, and turned into health scores and maintenance alerts that fire <b>weeks before failure</b>. Delivery is exactly-once, proven after a hard crash.</p>
+    <div class="btns">
+      <a class="btn primary" href="#explorer">Explore the engines</a>
+      <a class="btn ghost" id="repo-link" href="../">Code on GitHub</a>
+      <a class="btn ghost" id="log-link" href="../blob/main/docs/build-log.md">Build log: every decision and bug</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="st-msgs">57,452</b><span>messages streamed through Kafka with duplicates, late and broken data mixed in</span></div>
+      <div class="stat"><b>0 / 0</b><span>events lost / duplicated after <code>kill -9</code> mid-stream</span></div>
+      <div class="stat"><b>200 / 200</b><span>engines warned before failure (both fault types)</span></div>
+      <div class="stat"><b>44</b><span>cycles: median warning lead time before failure</span></div>
+      <div class="stat"><b id="st-tput">3,000</b><span>events/s sustained on 4 cores, all layers (ingest ~30,000/s)</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+<section id="arch">
+  <h2>How data flows</h2>
+  <p class="sub">Each engine is a stream of readings (21 sensors per flight cycle). The key is the engine id, so one engine's readings stay in order on one Kafka partition. Each layer is a separate streaming query with its own checkpoint, so a crash resumes exactly where each one stopped.</p>
+  <div class="card arch">
+    <svg viewBox="0 0 980 300" role="img" aria-label="Pipeline: NASA data to producer to Kafka to bronze, silver and dead-letter, then gold tables, dashboard and verification">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8da2c9"/></marker>
+      </defs>
+      <g font-family="Inter,sans-serif" font-size="13">
+        <g id="arch-edges" stroke="#8da2c9" stroke-width="2" fill="none" marker-end="url(#ar)">
+          <path id="e1" d="M120,150 L160,150"/>
+          <path id="e2" d="M280,150 L320,150"/>
+          <path id="e3" d="M440,150 L480,150"/>
+          <path id="e4" d="M600,140 L640,90"/>
+          <path id="e5" d="M600,160 L640,215"/>
+          <path id="e6" d="M760,80 L800,80"/>
+          <path id="e7" d="M860,110 L860,180"/>
+        </g>
+        <g>
+          <rect x="10" y="110" width="110" height="80" rx="12" fill="#eef2fa" stroke="#c9d5ec"/>
+          <text x="65" y="143" text-anchor="middle" font-weight="700">NASA C-MAPSS</text>
+          <text x="65" y="162" text-anchor="middle" fill="#5a6785" font-size="11">200 engines</text>
+          <text x="65" y="178" text-anchor="middle" fill="#5a6785" font-size="11">run to failure</text>
+
+          <rect x="160" y="110" width="120" height="80" rx="12" fill="#fff" stroke="#c9d5ec"/>
+          <text x="220" y="140" text-anchor="middle" font-weight="700">Producer</text>
+          <text x="220" y="158" text-anchor="middle" fill="#5a6785" font-size="11">idempotent · acks=all</text>
+          <text x="220" y="175" text-anchor="middle" fill="#d48806" font-size="11">chaos: dup / late / bad</text>
+
+          <rect x="320" y="100" width="120" height="100" rx="12" fill="#0b1a3a"/>
+          <text x="380" y="135" text-anchor="middle" font-weight="700" fill="#fff">Kafka</text>
+          <text x="380" y="154" text-anchor="middle" fill="#b5c3e6" font-size="11">6 partitions</text>
+          <text x="380" y="171" text-anchor="middle" fill="#b5c3e6" font-size="11">key = engine_id</text>
+
+          <rect x="480" y="110" width="120" height="80" rx="12" fill="#f6e7d2" stroke="#e0c49c"/>
+          <text x="540" y="142" text-anchor="middle" font-weight="700">Bronze</text>
+          <text x="540" y="161" text-anchor="middle" fill="#5a6785" font-size="11">raw, as received</text>
+
+          <rect x="640" y="40" width="120" height="80" rx="12" fill="#eef1f5" stroke="#c7ced9"/>
+          <text x="700" y="70" text-anchor="middle" font-weight="700">Silver</text>
+          <text x="700" y="88" text-anchor="middle" fill="#5a6785" font-size="11">validated, typed</text>
+          <text x="700" y="104" text-anchor="middle" fill="#5a6785" font-size="11">deduped (watermark)</text>
+
+          <rect x="640" y="180" width="120" height="80" rx="12" fill="#fde8e7" stroke="#f3b9b4"/>
+          <text x="700" y="212" text-anchor="middle" font-weight="700">Dead letter</text>
+          <text x="700" y="231" text-anchor="middle" fill="#5a6785" font-size="11">bad records + reason</text>
+
+          <rect x="800" y="30" width="170" height="80" rx="12" fill="#fff6d6" stroke="#ecd48a"/>
+          <text x="885" y="58" text-anchor="middle" font-weight="700">Gold</text>
+          <text x="885" y="76" text-anchor="middle" fill="#5a6785" font-size="11">engine state · alerts</text>
+          <text x="885" y="93" text-anchor="middle" fill="#5a6785" font-size="11">fleet health per minute</text>
+
+          <rect x="800" y="180" width="170" height="80" rx="12" fill="#e8efff" stroke="#bccdf6"/>
+          <text x="885" y="210" text-anchor="middle" font-weight="700">Dashboard + verify</text>
+          <text x="885" y="229" text-anchor="middle" fill="#5a6785" font-size="11">Streamlit · exactly-once</text>
+          <text x="885" y="245" text-anchor="middle" fill="#5a6785" font-size="11">vs producer manifest</text>
+        </g>
+        <g id="dots"></g>
+      </g>
+    </svg>
+    <div class="legend-row">
+      <span><b>Bronze</b>: never parse, so nothing is ever lost</span>
+      <span><b>Silver</b>: schema checks, event-time watermark, dedupe on a deterministic event id</span>
+      <span><b>Gold</b>: stateful health score per engine with idempotent <code>MERGE</code></span>
+    </div>
+  </div>
+</section>
+
+<section id="explorer">
+  <h2>Every NASA engine, cycle by cycle</h2>
+  <p class="sub">The line is the engine's smoothed health score (EWMA, α = 0.2) computed exactly as the streaming job does. Alerts fire when it crosses <b style="color:var(--warn)">WARNING 1.5</b> and <b style="color:var(--crit)">CRITICAL 2.5</b>. The engine fails at the last cycle. Switch to <b>v1</b> to see the bug: fan-fault engines stayed flat and never alerted.</p>
+  <div class="card">
+    <div class="controls">
+      <label for="eng" class="sr">Engine</label>
+      <select id="eng" aria-label="Engine"></select>
+      <div class="seg" role="group" aria-label="Health index version">
+        <button id="b-v2" aria-pressed="true">v2: fault-mode aware</button>
+        <button id="b-v1" aria-pressed="false">v1: original</button>
+      </div>
+      <div class="seg" role="group" aria-label="Fleet filter">
+        <button data-f="all" aria-pressed="true">All 200</button>
+        <button data-f="FD001" aria-pressed="false">FD001</button>
+        <button data-f="FD003" aria-pressed="false">FD003</button>
+        <button data-f="miss" aria-pressed="false">Missed by v1</button>
+      </div>
+    </div>
+    <div class="chart" id="chart"></div>
+    <div class="readout" id="readout"></div>
+    <div class="strip" id="strip" aria-label="All engines: colour = warning lead time"></div>
+    <div class="legend-row"><span>Squares: every engine in the filter. Colour = how early the warning came (darker = earlier); red = never warned. Click one to open it.</span></div>
+  </div>
+</section>
+
+<section id="fix">
+  <h2>The bug that mattered: 44% of one fleet never alerted</h2>
+  <p class="sub">The first health index was tuned on FD001, where every engine has a compressor (HPC) fault. On FD003, 44 of 100 engines have a <b>fan</b> fault: four sensors move the <i>opposite</i> way, cancelling the rising ones, so the score stayed near zero until failure. The fix scores both patterns and takes the worse one, with the fan pattern weighted 0.4 so lead times and false alarms match FD001. The weight was chosen on odd-numbered engines and confirmed on the even ones.</p>
+  <div class="card tbl"><table id="calib"></table></div>
+  <p class="callout">The same check also labels the fault: the 44 engines v1 missed are exactly the 44 v2 labels <span class="pill fan">FAN</span>, so each alert can go straight to the right maintenance team.</p>
+</section>
+
+<section id="reliability">
+  <h2>Reliability, proven rather than claimed</h2>
+  <p class="sub"><code>scripts/demo.sh</code> streams the whole fleet with deliberate chaos, kills the Spark application with <code>kill -9</code> mid-stream, restarts it, and compares every event in silver with the producer's manifest.</p>
+  <div class="grid2">
+    <div class="card"><dl class="kv" id="rel"></dl></div>
+    <div class="card">
+      <ol class="steps">
+        <li><b>Deterministic event id</b> (uuid5 of engine + cycle): the same reading always has the same id.</li>
+        <li><b>Checkpoints + Delta atomic commits</b>: a micro-batch is either fully written or not at all, and replayed after a crash.</li>
+        <li><b>Watermark dedupe</b> in silver removes retries and producer duplicates.</li>
+        <li><b>Idempotent MERGE</b> in gold: replaying a batch can't move an engine backwards or raise an alert twice.</li>
+        <li><b>Dead-letter table</b>: one broken message never stops the stream; every bad record is kept with its reason.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="scale">
+  <h2>Throughput and sizing</h2>
+  <p class="sub">Load-tested on a laptop-class machine (4 cores, 1 Kafka broker, Spark <code>local[*]</code>) with <code>scripts/loadtest.py</code>. The stateful gold step turned out to be the bottleneck: with it switched off, the same load ran at less than half the latency, so in production it runs as its own job. Details in <code>docs/capacity-plan.md</code>.</p>
+  <div class="card tbl"><table id="cap"></table></div>
+</section>
+
+<section id="stack">
+  <h2>Stack</h2>
+  <div class="chips">
+    <span class="chip">Apache Kafka 3.9 (KRaft)</span><span class="chip">Spark 4 Structured Streaming</span><span class="chip">Delta Lake 4</span>
+    <span class="chip">PySpark · applyInPandas · foreachBatch</span><span class="chip">confluent-kafka (Python)</span><span class="chip">delta-rs</span>
+    <span class="chip">Streamlit</span><span class="chip">Docker Compose</span><span class="chip">pytest + GitHub Actions CI</span><span class="chip">NASA C-MAPSS (public)</span>
+  </div>
+  <h2 style="margin-top:40px">Run it yourself</h2>
+  <p class="sub">No accounts or cloud needed: Docker, Python 3.10–3.12 and Java 17.</p>
+<pre>python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+docker compose up -d                 # Kafka on localhost:9092
+python -m telemetry.cli download     # NASA data, ~12 MB
+./scripts/demo.sh                    # chaos + crash + exactly-once check
+streamlit run dashboard/app.py       # live dashboard</pre>
+</section>
+</main>
+<footer class="wrap">Built by Yuvraj Singh Shekhawat. Data: NASA Prognostics Center of Excellence, C-MAPSS turbofan degradation simulation (public).</footer>
+
+<script>
+// GitHub Pages serves this from https://<user>.github.io/<repo>/ ; point the buttons at the repo itself.
+(function () {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  const repo = location.pathname.split('/').filter(Boolean)[0];
+  const base = m && repo ? `https://github.com/${m[1]}/${repo}` : 'https://github.com/YuvrajDevs/turbofan-telemetry';
+  document.getElementById('repo-link').href = base;
+  document.getElementById('log-link').href = base + '/blob/main/docs/build-log.md';
+})();
+
+// Measured results (filled from the latest demo + load test).
+const RESULTS = {
+  reliability: [
+    ['Messages sent', '57,452'], ['Duplicates injected', '2,227'], ['Late by 30 s', '1,386'], ['Malformed / missing / out of range', '438'],
+    ['Valid unique expected', '54,787'], ['In silver after crash + restart', '54,787'], ['Missing / duplicated', '0 / 0'],
+    ['Dead letters (all bad records)', '438'], ['Alerts raised / distinct', '345 / 345'],
+  ],
+  capacity: [
+    ['Producer (single Python process)', '~28,000 events/s'],
+    ['Bronze during backlog catch-up', '~200,000 rows per batch, every ~6.5 s (~30,000 events/s)'],
+    ['453,510-event backlog, cold start', 'all in silver after 59 s'],
+    ['Steady 1,000 events/s, all layers', 'keeps up · latency p50 14.0 s, p95 23.7 s'],
+    ['Steady 3,000 events/s, all layers', 'keeps up · latency p50 17.8 s, p95 24.6 s'],
+    ['Steady 3,000 events/s, without gold', 'latency p50 8.2 s, p95 10.8 s'],
+    ['Bottleneck (from Delta commit history)', 'stateful gold: ~30 s per batch, ~14,000 events/s'],
+    ['Sizing for 10,000 engines (20,000/s peak)', '24 Kafka partitions · bronze+silver 6-8 cores · gold job 9-10 cores'],
+  ],
+};
+
+// Animated dots on the architecture edges
+(function () {
+  const g = document.getElementById('dots');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7'].forEach((id, i) => {
+    const d = document.getElementById(id).getAttribute('d');
+    for (let k = 0; k < 2; k++) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('r', '4'); c.setAttribute('fill', id === 'e5' ? '#d92d20' : '#f6c343');
+      c.setAttribute('class', 'dot-anim');
+      c.style.offsetPath = `path('${d}')`; c.style.animationDelay = `${-(i * 0.4 + k * 1.6)}s`;
+      g.append(c);
+    }
+  });
+})();
+
+function fill(id, rows) { document.getElementById(id).innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join(''); }
+fill('rel', RESULTS.reliability);
+
+fetch('data.json').then(r => r.json()).then(D => {
+  const E = D.engines, sel = document.getElementById('eng'), chart = document.getElementById('chart');
+  let ver = 'v2', filter = 'all', cur = E.findIndex(e => e.id === 'FD003-003');
+  if (cur < 0) cur = 0;
+  const pass = e => filter === 'all' || (filter === 'miss' ? e.w1 == null : e.fleet === filter);
+
+  // calibration table
+  const t = document.getElementById('calib');
+  t.innerHTML = '<thead><tr><th>Health index</th><th>Fleet</th><th>Warned before failure</th><th>Warning lead (median / p10)</th><th>Critical lead (median / p10)</th><th>Warnings &gt;125 cycles early</th></tr></thead><tbody>' +
+    D.calibration.map(r => `<tr class="${/new/.test(r.design) ? 'hl' : ''}"><td>${r.design}</td><td>${r.fleet}</td><td class="num">${r.warned}</td><td class="num">${r['warn lead median/p10']}</td><td class="num">${r['crit lead median/p10']}</td><td class="num">${r['too early (>125)']}</td></tr>`).join('') + '</tbody>';
+
+  if (RESULTS.capacity) {
+    document.getElementById('cap').innerHTML = '<thead><tr><th>Metric</th><th>Measured</th></tr></thead><tbody>' + RESULTS.capacity.map(([k, v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join('') + '</tbody>';
+  }
+
+  function options() {
+    const list = E.map((e, i) => [e, i]).filter(([e]) => pass(e));
+    sel.innerHTML = list.map(([e, i]) => `<option value="${i}">${e.id} · ${e.mode} fault · life ${e.life} cycles${e.w1 == null ? ' · missed by v1' : ''}</option>`).join('');
+    if (!list.some(([, i]) => i === cur)) cur = list[0][1];
+    sel.value = cur;
+    const strip = document.getElementById('strip');
+    strip.innerHTML = '';
+    list.forEach(([e, i]) => {
+      const w = e[ver === 'v2' ? 'w2' : 'w1'], lead = w == null ? null : e.life - w;
+      const b = document.createElement('i');
+      b.style.background = lead == null ? '#d92d20' : `hsl(222,75%,${Math.max(28, 88 - lead * 0.9)}%)`;
+      b.title = `${e.id}: ${lead == null ? 'never warned' : 'warned ' + lead + ' cycles before failure'}`;
+      b.setAttribute('aria-current', i === cur);
+      b.onclick = () => { cur = i; sel.value = i; draw(); };
+      strip.append(b);
+    });
+  }
+
+  function draw() {
+    const e = E[cur], ys = e[ver], W = 900, H = 340, L = 44, R = 16, T = 16, B = 36;
+    const ymax = Math.max(3.4, Math.min(12, Math.max(...ys) + 0.4)), ymin = Math.min(-1, Math.min(...ys) - 0.2);
+    const x = c => L + (c - 1) / (e.life - 1) * (W - L - R), y = v => T + (ymax - Math.min(v, ymax)) / (ymax - ymin) * (H - T - B);
+    const pts = ys.map((v, i) => `${x(i + 1).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const other = e[ver === 'v2' ? 'v1' : 'v2'].map((v, i) => `${x(i + 1).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const w = e[ver === 'v2' ? 'w2' : 'w1'], c = e[ver === 'v2' ? 'c2' : 'c1'];
+    const ticks = [];
+    for (let k = Math.ceil(ymin); k <= ymax; k++) ticks.push(`<line x1="${L}" x2="${W - R}" y1="${y(k)}" y2="${y(k)}" stroke="#eef2f8"/><text x="${L - 8}" y="${y(k) + 4}" text-anchor="end" font-size="11" fill="#5a6785">${k}</text>`);
+    const xt = [];
+    const step = e.life > 300 ? 100 : 50;
+    for (let k = step; k < e.life; k += step) xt.push(`<text x="${x(k)}" y="${H - 12}" text-anchor="middle" font-size="11" fill="#5a6785">${k}</text>`);
+    const mark = (cyc, col, label) => cyc == null ? '' : `<line x1="${x(cyc)}" x2="${x(cyc)}" y1="${T}" y2="${H - B}" stroke="${col}" stroke-dasharray="3 3"/><circle cx="${x(cyc)}" cy="${y(ys[cyc - 1])}" r="5" fill="${col}" stroke="#fff" stroke-width="2"/><text x="${x(cyc) - 6}" y="${T + 12}" text-anchor="end" font-size="11" font-weight="700" fill="${col}">${label}</text>`;
+    chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Health score of ${e.id} over its life">
+      ${ticks.join('')}${xt.join('')}
+      <rect x="${L}" y="${y(ymax)}" width="${W - L - R}" height="${y(D.crit) - y(ymax)}" fill="#fde8e7" opacity=".5"/>
+      <rect x="${L}" y="${y(D.crit)}" width="${W - L - R}" height="${y(D.warn) - y(D.crit)}" fill="#fff6d6" opacity=".8"/>
+      <line x1="${L}" x2="${W - R}" y1="${y(D.warn)}" y2="${y(D.warn)}" stroke="#d48806"/><line x1="${L}" x2="${W - R}" y1="${y(D.crit)}" y2="${y(D.crit)}" stroke="#d92d20"/>
+      <polyline points="${other}" fill="none" stroke="#9aa9c7" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <polyline points="${pts}" fill="none" stroke="${e.mode === 'FAN' ? '#7c3aed' : '#1d4ed8'}" stroke-width="2.5" stroke-linejoin="round"/>
+      ${mark(w, '#d48806', 'WARNING')}${mark(c, '#d92d20', 'CRITICAL')}
+      <line x1="${x(e.life)}" x2="${x(e.life)}" y1="${T}" y2="${H - B}" stroke="#0f1b33" stroke-width="2"/><text x="${x(e.life) - 6}" y="${H - B - 6}" text-anchor="end" font-size="11" font-weight="700">FAILURE (cycle ${e.life})</text>
+      <text x="${L}" y="${H - 2}" font-size="11" fill="#5a6785">flight cycle →</text>
+    </svg>`;
+    const ro = (k, v) => `<div class="ro"><small>${k}</small><b>${v}</b></div>`;
+    document.getElementById('readout').innerHTML =
+      ro('Engine', `${e.id} <span class="pill ${e.mode.toLowerCase()}">${e.mode}</span>`) +
+      ro('Warning', w == null ? '<span class="pill miss">never</span>' : `${e.life - w} cycles before failure`) +
+      ro('Critical', c == null ? '<span class="pill miss">never</span>' : `${e.life - c} cycles before failure`) +
+      ro('Dashed line', ver === 'v2' ? 'v1 (original) for comparison' : 'v2 (fixed) for comparison');
+    document.querySelectorAll('#strip i').forEach(b => b.setAttribute('aria-current', 'false'));
+    [...document.querySelectorAll('#strip i')].find(b => b.title.startsWith(e.id + ':'))?.setAttribute('aria-current', 'true');
+  }
+
+  sel.onchange = () => { cur = +sel.value; draw(); };
+  const setVer = v => { ver = v; document.getElementById('b-v2').setAttribute('aria-pressed', v === 'v2'); document.getElementById('b-v1').setAttribute('aria-pressed', v === 'v1'); options(); draw(); };
+  document.getElementById('b-v2').onclick = () => setVer('v2');
+  document.getElementById('b-v1').onclick = () => setVer('v1');
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+    filter = b.dataset.f; document.querySelectorAll('[data-f]').forEach(x => x.setAttribute('aria-pressed', x === b)); options(); draw();
+  });
+  options(); draw();
+}).catch(err => { document.getElementById('chart').textContent = 'Could not load data.json (' + err.message + '). Open this page through a web server or GitHub Pages.'; });
+</script>
+</body>
+</html>

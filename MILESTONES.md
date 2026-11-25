@@ -44,17 +44,19 @@ in capped batches (Spark UI, http://localhost:4040).
 
 ## Part B: extend it (your code, your story)
 
-### T1. Fix FD003 detection (the best interview story) ★
-**Problem (build-log F14):** 44% of FD003 engines never alert, because the fan fault moves s7/s12/s20/s21 the opposite way.
-**Task:** make the health index fault-mode aware. Options: per-sensor absolute deviation, two indices (HPC, fan)
-and take the max, or per-fleet baselines. Recalibrate with the same lead-time table method (build-log phase 4).
-**Done when:** detection on FD003 goes from 56% to ≥ 95% with false alarms kept low, unit tests are updated, and ADR-004 is rewritten with your numbers.
+### T1. Fault-mode aware detection ✅ done (build-log Phase 11) — now make it yours ★
+FD003 detection went from 56% to 100% by scoring the HPC and fan fault patterns separately and taking the worse
+(fan weighted 0.4), with the weight tuned on odd engines and checked on even ones.
+**Do:** run `python scripts/calibrate.py` and read every row. Change `FAN_WEIGHT` to 1.0 and 0.2 and watch lead times and
+false alarms move. Open `site/index.html` (via `python -m http.server -d site`) and compare v1/v2 on a few FAN engines.
+**Explain without notes:** why the fan engines cancelled out; why not just use absolute deviation; why tune on odd
+engines and test on even; why there is a Spark/Python parity test; what you would do with a third fault type.
 
-### T2. Load test and capacity plan ★
-Run the producer as fast as possible with many loops: `produce --rate 0 --loops 20 --start-loop 100 --no-manifest`.
-Record peak throughput (`report` → `peak_processed_rows_per_s`), latency p50/p95, batch durations (Spark UI).
-Experiment: partitions 6 vs 12, `TT_MAX_OFFSETS`, `TT_SHUFFLE_PARTITIONS`, trigger 5 s vs 1 s.
-**Done when** `docs/capacity-plan.md` is filled with **your measured numbers** and a sizing for 10,000 engines.
+### T2. Load test and capacity plan ✅ done (`scripts/loadtest.py`, `docs/capacity-plan.md`) — re-run it on your machine ★
+**Do:** run `python scripts/loadtest.py` on your own laptop and replace the numbers in the capacity plan with yours.
+Then try 12 partitions vs 6, `TT_MAX_OFFSETS=50000`, `TT_TRIGGER="1 second"`, and note what changes.
+**Explain:** what is the bottleneck (look at median batch time per query)? Why does latency at a low rate mostly
+equal the trigger interval times the number of layers? How many cores for 10,000 engines?
 
 ### T3. Schema evolution
 Add `schema_version: 2` with a new field (e.g. `ambient_temp_c`). Old and new events must both flow; silver keeps the

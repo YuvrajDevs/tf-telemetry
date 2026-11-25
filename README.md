@@ -10,6 +10,8 @@ NASA C-MAPSS ─► Producer ─► Kafka (6 partitions) ─► Bronze (raw) ─
   200 engines     chaos:       key = engine_id        Delta           + Dead-letter table            foreachBatch + MERGE    ─► Dashboard
                   dup/late/bad                                                                                             ─► verify (exactly-once)
 ```
+**Project page with an interactive explorer of all 200 engines:** https://yuvrajdevs.github.io/turbofan-telemetry/ (built from [`site/`](site/))
+
 Full diagram and guarantees: [docs/architecture.md](docs/architecture.md) · How it was built, every decision and every bug: [docs/build-log.md](docs/build-log.md)
 
 ## Results (measured)
@@ -23,15 +25,21 @@ From `scripts/demo.sh` (2 waves, chaos on, `kill -9` of the Spark app mid-stream
 | Valid unique events expected | 54,787 |
 | In silver after the crash and restart | **54,787: 0 missing, 0 duplicates, 0 unexpected → PASS** |
 | Dead-letter table | 438 = 145 `MALFORMED_JSON` + 154 `MISSING_FIELD` + 139 `OUT_OF_RANGE` (all of them, none leaked into silver) |
-| Alerts | 345 raised, 345 distinct (each engine × level exactly once) |
+| Alerts | 425 raised, 425 distinct (each engine × level exactly once), each labelled HPC or FAN fault |
 | Producer throughput (single process, laptop) | ~28,000 msgs/s unthrottled |
 
 ![dashboard](docs/img/dashboard.png)
 <!-- RESULTS:END -->
 
-**Alert quality on real NASA data (FD001, 100 engines run to failure):** WARNING fires a median **44 cycles before
-failure** (90% of engines at least 27 cycles ahead), CRITICAL a median **18-19 cycles** before, **100% of engines caught**.
-On FD003, 56% caught: the second fault mode (fan) isn't detected yet. Analysis in build-log F14; improving it is Milestone T1.
+**Alert quality on real NASA data (all 200 engines run to failure, `python scripts/calibrate.py`):**
+
+| Fleet | Engines warned before failure | Warning lead, median / p10 | Critical lead, median / p10 | Warnings > 125 cycles early |
+|---|---|---|---|---|
+| FD001 (compressor faults) | **100/100** | 44 / 25 cycles | 18 / 11 | 1 |
+| FD003 (compressor + fan faults) | **100/100** (was 56 with the first version) | 44 / 25 cycles | 17 / 8 | 2 |
+
+The first health index missed 44% of FD003: fan faults move four sensors the opposite way and cancelled out. The fixed
+version scores both fault patterns, takes the worse, and labels each alert HPC or FAN (build-log Phase 11, ADR-004).
 
 ## What it demonstrates
 
@@ -43,6 +51,8 @@ On FD003, 56% caught: the second fault mode (fan) isn't detected yet. Analysis i
 | Stateful processing with idempotent MERGE, event-time windows | `telemetry/jobs/gold.py` |
 | Data quality + exactly-once **verification** (not just claims) | `telemetry/report.py`, `scripts/demo.sh` |
 | IoT / predictive-maintenance domain logic, unit-tested | `telemetry/events.py`, `tests/` |
+| Model evaluation per segment, held-out tuning, Spark/Python parity test | `scripts/calibrate.py`, `tests/test_spark_parity.py` |
+| Load testing and capacity planning | `scripts/loadtest.py`, `docs/capacity-plan.md` |
 | Delta Lake (ACID, MERGE), delta-rs, Streamlit dashboard | `dashboard/app.py` |
 
 ## Quick start (no accounts or logins needed)
@@ -54,7 +64,7 @@ Python 3.10-3.12, Java 17 ([Temurin](https://adoptium.net/)). On Windows, use WS
 git clone <this repo> && cd turbofan-telemetry
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest -q                                   # 10 unit tests, ~0.1 s
+pytest -q                                   # unit tests (+ Spark parity test if PySpark is installed)
 docker compose up -d                        # Kafka on localhost:9092, Kafka UI on http://localhost:8080
 python -m telemetry.cli download            # NASA C-MAPSS, ~12 MB, public
 ./scripts/demo.sh                           # full run with chaos + crash + verification (~6 min)
@@ -74,6 +84,9 @@ The first Spark start downloads the Kafka and Delta connector jars from Maven Ce
 | `python -m telemetry.cli report` | counts, duplicates, dead letters, latency p50/p95/p99, alerts, peak throughput |
 | `python -m telemetry.cli verify` | exactly-once check: producer manifest vs silver |
 | `python -m telemetry.cli reset` | delete local tables and checkpoints |
+| `python scripts/calibrate.py` | alert quality of each health-index design on all NASA engines |
+| `python scripts/loadtest.py` | backlog drain + steady-state latency test, writes `docs/loadtest-results.json` |
+| `python scripts/build_site.py` | rebuild `site/data.json` for the project page |
 
 ## Project layout
 ```
@@ -81,7 +94,8 @@ telemetry/          cmapss.py (data) · events.py (contract + domain logic) · p
 telemetry/jobs/     bronze.py · silver.py · gold.py · run.py
 tests/              pure-Python unit tests (no Spark/Kafka)
 dashboard/app.py    Streamlit fleet dashboard
-scripts/demo.sh     end-to-end run with a crash in the middle
+scripts/           demo.sh (end-to-end with a crash) · calibrate.py · loadtest.py · build_site.py
+site/              project page (GitHub Pages): architecture, results, engine explorer
 docs/               architecture.md · build-log.md · decisions.md · capacity-plan.md
 MILESTONES.md       learning path, extension tasks, interview questions
 ```

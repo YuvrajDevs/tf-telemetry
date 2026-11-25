@@ -50,7 +50,7 @@ def live():
     with right:
         st.subheader("Latest alerts")
         if len(alerts):
-            st.dataframe(alerts.sort_values("event_time", ascending=False).head(20)[["engine_id", "level", "cycle", "ewma_health", "event_time"]],
+            st.dataframe(alerts.sort_values("event_time", ascending=False).head(20)[[c for c in ["engine_id", "level", "fault_mode", "cycle", "ewma_health", "event_time"] if c in alerts.columns]],
                          hide_index=True, use_container_width=True)
         st.subheader("Dead-letter reasons")
         if len(dlq):

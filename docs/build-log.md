@@ -214,6 +214,92 @@ mode. A window is written once, when it is final (see F11).
 
 ---
 
+## Phase 11. Fixing F14: a fault-mode aware health index (Milestone T1)
+
+**Goal:** catch FD003's fan-fault engines without making FD001 worse or adding false alarms.
+
+**Step 1: measure before changing anything.** I wrote `scripts/calibrate.py`. It replays every NASA engine cycle by
+cycle through the same EWMA + thresholds as the stream and prints, per design and fleet: engines warned, lead
+times, and warnings that fire **more than 125 cycles before failure** (C-MAPSS engines are normally treated as healthy
+until ~125 cycles before the end, so those count as false alarms).
+
+**Step 2: find the fan-fault signature.** End-of-life sensor deviation (z vs the healthy FD001 baseline), median:
+
+| Sensor | Engines v1 caught (HPC fault) | Engines v1 missed (fan fault) |
+|---|---|---|
+| s7, s12 | −3.9, −4.1 | **+21.9, +26.0** |
+| s20, s21 | −3.6, −3.4 | **+5.0, +5.0** |
+| s15 | +3.7 | **−6.6** |
+| s2, s3, s4, s11, s17 | +3 to +4 | +2 to +4 |
+
+The fan fault flips the direction of five sensors. In the v1 index (signs tuned to HPC) they cancel the rising ones.
+
+**Step 3: options I compared.**
+
+| Design | Idea | Problem |
+|---|---|---|
+| Mean **absolute** deviation | ignore direction | FD001 warnings came later (29 vs 44 cycles) and FD003 had 16 false alarms |
+| **max(HPC index, fan index)** | one signed index per fault pattern, take the worse | 100% caught, but 11 false alarms: s7/s12 move 20+ standard deviations, so the fan index rises too early |
+| **max(HPC, 0.4 × fan)** ✔ | same, with the fan pattern scaled down | matches FD001 behaviour |
+
+**Step 4: choose the weight without fooling myself.** Tuning the weight on all of FD003 and reporting results on
+the same engines would be optimistic. I tuned on the **odd-numbered** engines (0.4 → 0 false alarms, 44-cycle warning
+lead) and checked on the **even-numbered** ones: 50/50 caught, warning lead 44 (p10 25), 2 early warnings.
+
+**Result (`python scripts/calibrate.py`):**
+
+| Health index | Fleet | Warned before failure | Warning lead median / p10 | Critical lead median / p10 | Warnings > 125 cycles early |
+|---|---|---|---|---|---|
+| v1 signed HPC index | FD001 | 100% | 44 / 25 | 18 / 11 | 1 |
+| v1 signed HPC index | FD003 | **56%** | 44 / 26 | 18 / 10 | 2 |
+| v2 max(HPC, 0.4 × fan) | FD001 | 100% | 44 / 25 | 18 / 11 | 1 |
+| v2 max(HPC, 0.4 × fan) | FD003 | **100%** | 44 / 25 | 17 / 8 | 2 |
+
+FD001 is unchanged (the fan term never wins there) and FD003 now behaves like FD001.
+
+**Step 5: a free bonus, the fault type.** Whichever pattern wins tells you *what* is failing. Silver gets a
+`fault_mode` column (HPC or FAN) and every state row and alert carries it, so an alert can go straight to the right
+maintenance team. The 44 engines v1 missed are exactly the 44 that v2 labels FAN.
+
+**Step 6: keep Spark and Python identical.** The silver job computes the index as a Spark expression; gold, the tests
+and the calibration use the Python function. If they drifted apart, production alerts would no longer match the
+calibration. `tests/test_spark_parity.py` runs both on the same rows and requires identical results (skipped in CI,
+where Spark is not installed; run locally).
+
+**Step 7: re-run everything.** 14 tests pass. `scripts/demo.sh` again: 54,787/54,787 events, 0 missing, 0 duplicates
+after `kill -9`; alerts rose from 345 to **425** (all distinct) because the fan-fault engines now alert too.
+
+**Schema change note:** `fault_mode` is a new column in silver and gold. Locally I reset the lake. In production you
+would add the column with Delta schema evolution (`mergeSchema`) and backfill silver from bronze, which is exactly
+what keeping a raw bronze layer is for (ADR-003).
+
+**Lesson:** a model calibrated on one population can silently fail on another. Measure per segment, compare designs
+with numbers, and hold out data when you tune.
+
+---
+
+## Phase 12. Load test and capacity plan (Milestone T2)
+
+`scripts/loadtest.py` runs two tests from a clean slate: drain a backlog of ~450,000 events (maximum rate), then
+produce at 1,000 and 3,000 events/s for 60 s each (latency and keeping up). Full numbers: `docs/capacity-plan.md`.
+
+| Finding | Evidence |
+|---|---|
+| Ingest is not the limit | producer ~28,000 events/s; bronze commits ~200,000 rows every ~6.5 s during catch-up |
+| Keeps up at 3,000 events/s on 4 cores | silver complete 27 s after the producer stopped |
+| Latency p50 17.8 s / p95 24.6 s at 3,000/s | event → silver, all 5 queries running |
+| **Gold is the bottleneck** | gold batches take ~30 s; bronze/silver commit every ~6.6 s instead of 5 s |
+| Proof | same test **without gold**: bronze back to a 5.0 s cadence, latency p50 8.2 s / p95 10.8 s |
+
+**How I found the bottleneck:** not from the Spark UI but from **Delta commit history**: every streaming batch is a
+commit with a timestamp, so the gap between commits is the real batch cadence per layer
+(`DeltaTable(path).history()`). Then I confirmed it with a controlled experiment (same load, gold switched off).
+
+**Decision for production:** run gold as a separate job with its own cores and a 30 s trigger. Engine health
+changes once per flight cycle, so 30 s freshness is plenty; bronze/silver keep 5 s.
+
+---
+
 ## Failure log (everything that went wrong, in order)
 
 ### F1. Docker daemon not running
@@ -324,7 +410,7 @@ See Phase 2.
 - **Diagnosis:** the missed engines have FD003's **second fault mode** (fan degradation). For them,
   s7, s12, s20 and s21 move **up** (+14.9, +14.4, +0.6, +0.4 vs baseline) while the health index expects
   them to move **down**, so they cancel out the rising sensors.
-- **Status:** left as **Milestone T1** (yours): make the index fault-mode aware and measure the improvement.
+- **Status:** **fixed in Phase 11** (fault-mode aware health index): FD003 detection 56% → 100%.
 - **Lesson:** a model calibrated on one population (FD001) silently under-performs on another (FD003).
   Monitor detection quality per segment, not just overall.
 
@@ -341,6 +427,16 @@ See Phase 2.
 - **Side effect worth noting:** the crash happened before `producer.flush()`, so 51 queued messages were
   never sent and no manifest was written. Always flush on shutdown (a `try/finally` is a good extension).
 - **Lesson:** load tests find bugs that functional tests don't. Timing code must tolerate the clock moving.
+
+### F16. A load-test metric that lied: "145,123,200,000,000 events/s"
+- **When:** the second load test (bronze + silver only, smaller backlog).
+- **Cause:** I measured "sustained" throughput between the moments silver reached 10% and 90% of the backlog. With
+  up to 200,000 rows per micro-batch, the whole backlog landed in **one** commit, so both moments were the same poll
+  and the division was by almost zero. In the first run it "only" inflated the number (44,893/s from two commits).
+- **Fix:** report wall-clock throughput (events / total drain time, cold start included) and get per-layer rates
+  from the Delta commit history instead.
+- **Lesson:** with micro-batches, progress moves in steps. Any rate computed over a window shorter than a few batches
+  is noise. Sanity-check every metric against a second source.
 
 ---
 

@@ -11,7 +11,7 @@ from pyspark.sql import types as T
 
 from ..cmapss import SENSORS
 from ..config import CHECKPOINTS, TABLES, TRIGGER, WATERMARK
-from ..events import HEALTH_SENSORS, SENSOR_RANGES
+from ..events import FAN_SIGNS, FAN_WEIGHT, HEALTH_SENSORS, HPC_SIGNS, SENSOR_RANGES
 
 EVENT_SCHEMA = T.StructType([
     T.StructField("schema_version", T.IntegerType()),
@@ -38,9 +38,26 @@ def classify(bronze_df):
     return df.withColumn("dlq_reason", reason)
 
 
-def health_expr():
-    terms = [F.lit(float(sign)) * (F.col(s) - F.lit(mu)) / F.lit(sd) for s, (sign, mu, sd) in HEALTH_SENSORS.items()]
+def _index_expr(signs):
+    terms = [F.lit(float(signs[s])) * (F.col(s) - F.lit(mu)) / F.lit(sd) for s, (_, mu, sd) in HEALTH_SENSORS.items()]
     return reduce(lambda a, b: a + b, terms) / F.lit(float(len(terms)))
+
+
+def hpc_expr():
+    return _index_expr(HPC_SIGNS)
+
+
+def fan_expr():
+    return F.lit(FAN_WEIGHT) * _index_expr(FAN_SIGNS)
+
+
+def health_expr():
+    """Same as events.health_index(): the worse of the HPC and (weighted) fan fault patterns."""
+    return F.greatest(hpc_expr(), fan_expr())
+
+
+def fault_mode_expr():
+    return F.when(fan_expr() > hpc_expr(), F.lit("FAN")).otherwise(F.lit("HPC"))
 
 
 def valid_events(classified):
@@ -53,6 +70,7 @@ def valid_events(classified):
                 F.col("e.op_settings").alias("op_settings"),
                 "kafka_ts", "ingest_ts", "partition", "offset")
             .withColumn("health_index", health_expr())
+            .withColumn("fault_mode", fault_mode_expr())
             .withColumn("event_date", F.to_date("event_time")))
 
 

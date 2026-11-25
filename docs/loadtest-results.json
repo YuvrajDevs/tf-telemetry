@@ -1,0 +1,63 @@
+{
+  "machine": {
+    "cpus": 4,
+    "ram_gb": 16,
+    "python": "3.13.18",
+    "os": "Linux"
+  },
+  "settings": {
+    "partitions": 6,
+    "trigger": "5 seconds",
+    "max_offsets_per_trigger": 200000,
+    "shuffle_partitions": "default",
+    "layers": [
+      "bronze",
+      "silver",
+      "gold"
+    ]
+  },
+  "backlog": {
+    "events": 453510,
+    "producer_events_per_s": 28324,
+    "first_rows_after_s": 50,
+    "drain_s": 59,
+    "wall_clock_events_per_s": 7687
+  },
+  "steady": [
+    {
+      "target_rate": 1000,
+      "sent": 60000,
+      "actual_rate": 996,
+      "drain_after_send_s": 19.8,
+      "rows": 60000,
+      "p50_ms": 13997,
+      "p95_ms": 23691,
+      "p99_ms": 26088
+    },
+    {
+      "target_rate": 3000,
+      "sent": 180000,
+      "actual_rate": 2983,
+      "drain_after_send_s": 26.6,
+      "rows": 180000,
+      "p50_ms": 17825,
+      "p95_ms": 24608,
+      "p99_ms": 27008
+    }
+  ],
+  "peak_processed_rows_per_s": {
+    "fleet_health_minute": 55138.0,
+    "dead_letter": 4536.9,
+    "bronze": 5006.8,
+    "silver": 3169.0,
+    "engine_state": 14070.6
+  },
+  "median_batch_ms": {
+    "fleet_health_minute": 7112,
+    "dead_letter": 6534,
+    "bronze": 5828,
+    "silver": 6348,
+    "engine_state": 30193
+  },
+  "note": "Measured by scripts/loadtest.py in a 4-core Linux container. Commit cadence from Delta history: bronze and silver commit every ~6.6 s (median), gold every ~30 s."
+}

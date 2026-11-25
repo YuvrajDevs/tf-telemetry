@@ -63,3 +63,33 @@ def test_out_of_order_events_are_applied_in_cycle_order_and_stale_ones_ignored()
 def test_synthetic_engines_degrade():
     rows = [r for r in cmapss.synthetic("FD001", engines=1)]
     assert health_index(rows[-1]) > health_index(rows[0]) + 2
+
+
+def _shift(pattern_signs, z):
+    """A healthy row with every health sensor moved z standard deviations in the given pattern's direction."""
+    from telemetry.events import HEALTH_SENSORS
+    row = dict(ROW)
+    for s, (_, mu, sd) in HEALTH_SENSORS.items():
+        row[s] = mu + pattern_signs[s] * z * sd
+    return row
+
+
+def test_fan_fault_is_detected_and_labelled():
+    # v1 bug (build-log F14): the fan pattern cancelled itself out in the HPC-only index.
+    from telemetry.events import FAN_SIGNS, fault_mode, hpc_index
+    fan_row = _shift(FAN_SIGNS, 8.0)
+    assert hpc_index(fan_row) < WARNING_AT          # the old index would miss it
+    assert health_index(fan_row) >= CRITICAL_AT     # the new one does not
+    assert fault_mode(fan_row) == "FAN"
+
+
+def test_hpc_fault_is_labelled_hpc():
+    from telemetry.events import HPC_SIGNS, fault_mode
+    hpc_row = _shift(HPC_SIGNS, 4.0)
+    assert health_index(hpc_row) >= CRITICAL_AT and fault_mode(hpc_row) == "HPC"
+
+
+def test_alert_carries_fault_mode():
+    events = [{**ev(c, 10.0), "fault_mode": "FAN"} for c in range(1, 6)]
+    _, alerts = advance_state(None, events)
+    assert {a["fault_mode"] for a in alerts} == {"FAN"}
