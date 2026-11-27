@@ -14,6 +14,8 @@ NASA C-MAPSS ─► Producer ─► Kafka (6 partitions) ─► Bronze (raw) ─
 
 Full diagram and guarantees: [docs/architecture.md](docs/architecture.md) · How it was built, every decision and every bug: [docs/build-log.md](docs/build-log.md)
 
+**Build it yourself from an empty folder:** [docs/build-guide.md](docs/build-guide.md): 22 chapters in plain words, every tool explained (why, alternatives, advantages, impact), every file in full, a check after each step, troubleshooting, and how to explain the project in an interview.
+
 ## Results (measured)
 
 <!-- RESULTS:START -->
@@ -96,7 +98,7 @@ tests/              pure-Python unit tests (no Spark/Kafka)
 dashboard/app.py    Streamlit fleet dashboard
 scripts/           demo.sh (end-to-end with a crash) · calibrate.py · loadtest.py · build_site.py
 site/              project page (GitHub Pages): architecture, results, engine explorer
-docs/               architecture.md · build-log.md · decisions.md · capacity-plan.md
+docs/               build-guide.md · architecture.md · build-log.md · decisions.md · capacity-plan.md
 ```
 
 ## Data
